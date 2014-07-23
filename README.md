@@ -1,9 +1,9 @@
 ## Build
 
-Install autoconf first for jemalloc
+For linux, install autoconf first for jemalloc
 
 ```
-git clone git@github.com:cloudwu/skynet.git
+git clone https://github.com/cloudwu/skynet.git
 cd skynet
 make 'PLATFORM'  # PLATFORM can be linux, macosx, freebsd now
 ```
@@ -14,6 +14,8 @@ Or you can :
 export PLAT=linux
 make
 ```
+
+For freeBSD , use gmake instead of make .
 
 ## Test
 
@@ -36,5 +38,4 @@ You can also use the offical lua version , edit the makefile by yourself .
 
 * http://blog.codingnow.com/2012/09/the_design_of_skynet.html
 * http://blog.codingnow.com/2012/08/skynet.html
-* http://blog.codingnow.com/2012/08/skynet_harbor_rpc.html
 * http://blog.codingnow.com/eo/skynet/
