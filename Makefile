@@ -43,7 +43,7 @@ jemalloc : $(MALLOC_STATICLIB)
 CSERVICE = snlua logger gate harbor
 LUA_CLIB = skynet socketdriver int64 bson mongo md5 netpack \
   cjson clientsocket memory profile multicast \
-  cluster
+  cluster conf struct lfs protobuf lpeg syslog xxtea
 
 SKYNET_SRC = skynet_main.c skynet_handle.c skynet_module.c skynet_mq.c \
   skynet_server.c skynet_start.c skynet_timer.c skynet_error.c \
@@ -95,6 +95,12 @@ $(LUA_CLIB_PATH)/netpack.so : lualib-src/lua-netpack.c | $(LUA_CLIB_PATH)
 $(LUA_CLIB_PATH)/cjson.so : | $(LUA_CLIB_PATH)
 	cd 3rd/lua-cjson && $(MAKE) LUA_INCLUDE_DIR=../../$(LUA_INC) CC=$(CC) CJSON_LDFLAGS="$(SHARED)" && cd ../.. && cp 3rd/lua-cjson/cjson.so $@
 
+$(LUA_CLIB_PATH)/protobuf.so : | $(LUA_CLIB_PATH)
+	cd 3rd/lua-pbc && $(MAKE) LUA_INCLUDE_DIR=../../$(LUA_INC) PBC_LDFLAGS="$(SHARED)" && cd ../.. && cp 3rd/lua-pbc/protobuf.so $@
+
+$(LUA_CLIB_PATH)/lpeg.so : | $(LUA_CLIB_PATH)
+	cd 3rd/lua-lpeg && $(MAKE) LUA_INCLUDE_DIR=../../$(LUA_INC) LPEG_LDFLAGS="$(SHARED)" && cd ../.. && cp 3rd/lua-lpeg/lpeg.so $@
+
 $(LUA_CLIB_PATH)/clientsocket.so : lualib-src/lua-clientsocket.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) $^ -o $@ -lpthread
 
@@ -107,7 +113,19 @@ $(LUA_CLIB_PATH)/profile.so : lualib-src/lua-profile.c | $(LUA_CLIB_PATH)
 $(LUA_CLIB_PATH)/multicast.so : lualib-src/lua-multicast.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
 
-$(LUA_CLIB_PATH)/cluster.so : lualib-src/lua-cluster.c | $(LUA_CLIB_PATH)
+$(LUA_CLIB_PATH)/conf.so : lualib-src/lua-conf.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
+
+$(LUA_CLIB_PATH)/struct.so : lualib-src/lua-struct.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
+
+$(LUA_CLIB_PATH)/lfs.so : lualib-src/lua-filesystem.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
+
+$(LUA_CLIB_PATH)/syslog.so : lualib-src/lua-syslog.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
+	
+$(LUA_CLIB_PATH)/xxtea.so : lualib-src/lua-xxtea.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
 
 clean :
@@ -115,6 +133,8 @@ clean :
 
 cleanall: clean
 	cd 3rd/lua-cjson && $(MAKE) clean
+	cd 3rd/lua-pbc && $(MAKE) clean
 	cd 3rd/jemalloc && $(MAKE) clean
+	cd 3rd/lua-lpeg && $(MAKE) clean
 	rm -f $(LUA_STATICLIB)
 
