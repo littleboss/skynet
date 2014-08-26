@@ -1,5 +1,4 @@
 // build: gcc -O2 -Wall --shared -o conf.so luaconf.c 
-#include "skynet_malloc.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -36,6 +35,14 @@ struct node {
 	uint8_t nocolliding;	// 0 means colliding slot
 };
 
+struct table;
+
+struct state {
+	int dirty;
+	int ref;
+	struct table * root;
+};
+
 struct table {
 	int sizearray;
 	int sizehash;
@@ -51,7 +58,10 @@ struct context {
 	int string_index;
 };
 
-struct table * g_table;
+struct ctrl {
+	struct table * root;
+	struct table * update;
+};
 
 static int
 countsize(lua_State *L, int sizearray) {
@@ -135,7 +145,7 @@ setvalue(struct context * ctx, lua_State *L, int index, struct node *n) {
 		break;
 	case LUA_TTABLE: {
 		struct table *tbl = ctx->tbl;
-		ctx->tbl = (struct table *)skynet_malloc(sizeof(struct table));
+		ctx->tbl = (struct table *)malloc(sizeof(struct table));
 		if (ctx->tbl == NULL) {
 			ctx->tbl = tbl;
 			luaL_error(L, "memory error");
@@ -268,14 +278,14 @@ convtable(lua_State *L) {
 
 	int sizearray = lua_rawlen(L, 1);
 	if (sizearray) {
-		tbl->arraytype = (uint8_t *)skynet_malloc(sizearray * sizeof(uint8_t));
+		tbl->arraytype = (uint8_t *)malloc(sizearray * sizeof(uint8_t));
 		if (tbl->arraytype == NULL) {
 			goto memerror;
 		}
 		for (i=0;i<sizearray;i++) {
 			tbl->arraytype[i] = VALUETYPE_NIL;
 		}
-		tbl->array = (union value *)skynet_malloc(sizearray * sizeof(union value));
+		tbl->array = (union value *)malloc(sizearray * sizeof(union value));
 		if (tbl->array == NULL) {
 			goto memerror;
 		}
@@ -283,7 +293,7 @@ convtable(lua_State *L) {
 	}
 	int sizehash = countsize(L, sizearray);
 	if (sizehash) {
-		tbl->hash = (struct node *)skynet_malloc(sizehash * sizeof(struct node));
+		tbl->hash = (struct node *)malloc(sizehash * sizeof(struct node));
 		if (tbl->hash == NULL) {
 			goto memerror;
 		}
@@ -322,10 +332,10 @@ delete_tbl(struct table *tbl) {
 			delete_tbl(tbl->hash[i].v.tbl);
 		}
 	}
-	skynet_free(tbl->arraytype);
-	skynet_free(tbl->array);
-	skynet_free(tbl->hash);
-	skynet_free(tbl);
+	free(tbl->arraytype);
+	free(tbl->array);
+	free(tbl->hash);
+	free(tbl);
 }
 
 static int
@@ -360,17 +370,19 @@ pconv(lua_State *L) {
 }
 
 static void
-convert_stringmap(struct context *ctx) {
+convert_stringmap(struct context *ctx, struct table *tbl) {
 	lua_State *L = ctx->L;
 	lua_settop(L, ctx->string_index + 1);
 	lua_pushvalue(L, 1);
-	lua_pushnil(L);
+	struct state * s = lua_newuserdata(L, sizeof(*s));
+	s->dirty = 0;
+	s->ref = 0;
+	s->root = tbl;
 	lua_replace(L, 1);
 	lua_replace(L, -2);
+
 	lua_pushnil(L);
-
 	// ... stringmap nil
-
 	while (lua_next(L, -2) != 0) {
 		int idx = lua_tointeger(L, -1);
 		lua_pop(L, 1);
@@ -387,24 +399,25 @@ static int
 lnewconf(lua_State *L) {
 	int ret;
 	struct context ctx;
+	struct table * tbl = NULL;
 	luaL_checktype(L,1,LUA_TTABLE);
 	ctx.L = luaL_newstate();
 	ctx.tbl = NULL;
-	ctx.string_index = 0;
+	ctx.string_index = 1;	// 1 reserved for dirty flag
 	if (ctx.L == NULL) {
 		lua_pushliteral(L, "memory error");
 		goto error;
 	}
-	g_table = (struct table *)skynet_malloc(sizeof(struct table));
-	if (g_table == NULL) {
+	tbl = (struct table *)malloc(sizeof(struct table));
+	if (tbl == NULL) {
 		// lua_pushliteral may fail because of memory error, close first.
 		lua_close(ctx.L);
 		ctx.L = NULL;
 		lua_pushliteral(L, "memory error");
 		goto error;
 	}
-	memset(g_table, 0, sizeof(struct table));
-	ctx.tbl = g_table;
+	memset(tbl, 0, sizeof(struct table));
+	ctx.tbl = tbl;
 
 	lua_pushcfunction(ctx.L, pconv);
 	lua_pushlightuserdata(ctx.L , &ctx);
@@ -419,17 +432,17 @@ lnewconf(lua_State *L) {
 		goto error;
 	}
 
-	convert_stringmap(&ctx);
+	convert_stringmap(&ctx, tbl);
 
-	lua_pushlightuserdata(L, g_table);	
+	lua_pushlightuserdata(L, tbl);	
 
 	return 1;
 error:
 	if (ctx.L) {
 		lua_close(ctx.L);
 	}
-	if (g_table) {
-		delete_tbl(g_table);
+	if (tbl) {
+		delete_tbl(tbl);
 	}
 	lua_error(L);
 	return -1;
@@ -544,45 +557,8 @@ lindexconf(lua_State *L) {
 	}
 }
 
-static void confmeta(lua_State *L);
-
 static void
-wrap_table(lua_State *L) {
-	if (lua_islightuserdata(L, -1)) {
-		lua_newtable(L);
-		lua_pushvalue(L, -2);
-		lua_rawseti(L, -2, 0);
-		confmeta(L);
-		lua_setmetatable(L, -2);
-		lua_replace(L, -2);
-	}
-}
-
-static int
-cacheindex(lua_State *L) {
-	lua_pushcfunction(L, lindexconf);
-	lua_rawgeti(L, 1, 0);
-	get_table(L,-1);	// check conf object
-	lua_pushvalue(L,2);
-	lua_call(L, 2, 1);
-	wrap_table(L);
-	lua_pushvalue(L, 2);
-	lua_pushvalue(L, -2);
-	lua_rawset(L, 1);
-
-	return 1;
-}
-
-static int
-conflen(lua_State *L) {
-	lua_rawgeti(L, 1, 0);
-	struct table * tbl = get_table(L,-1);
-	lua_pushinteger(L, tbl->sizearray);
-	return 1;
-}
-
-static void
-pushkv(lua_State *L, lua_State *sL, struct node *n) {
+pushkey(lua_State *L, lua_State *sL, struct node *n) {
 	if (n->keytype == KEYTYPE_INTEGER) {
 		lua_pushinteger(L, n->key);
 	} else {
@@ -590,21 +566,20 @@ pushkv(lua_State *L, lua_State *sL, struct node *n) {
 		const char * str = lua_tolstring(sL, n->key, &sz);
 		lua_pushlstring(L, str, sz);
 	}
-	pushvalue(L, sL, n->valuetype, &n->v);
 }
 
 static int
 pushfirsthash(lua_State *L, struct table * tbl) {
 	if (tbl->sizehash) {
-		pushkv(L, tbl->L, &tbl->hash[0]);
-		return 2;
+		pushkey(L, tbl->L, &tbl->hash[0]);
+		return 1;
 	} else {
 		return 0;
 	}
 }
 
 static int
-lboxnext(lua_State *L) {
+lnextkey(lua_State *L) {
 	struct table *tbl = get_table(L,1);
 	if (lua_isnoneornil(L,2)) {
 		if (tbl->sizearray > 0) {
@@ -612,8 +587,7 @@ lboxnext(lua_State *L) {
 			for (i=0;i<tbl->sizearray;i++) {
 				if (tbl->arraytype[i] != VALUETYPE_NIL) {
 					lua_pushinteger(L, i+1);
-					pushvalue(L, tbl->L, tbl->arraytype[i], &tbl->array[i]);
-					return 2;
+					return 1;
 				}
 			}
 		}
@@ -637,8 +611,7 @@ lboxnext(lua_State *L) {
 			for (i=key;i<sizearray;i++) {
 				if (tbl->arraytype[i] != VALUETYPE_NIL) {
 					lua_pushinteger(L, i+1);
-					pushvalue(L, tbl->L, tbl->arraytype[i], &tbl->array[i]);
-					return 2;
+					return 1;
 				}
 			}
 			return pushfirsthash(L, tbl);
@@ -658,115 +631,155 @@ lboxnext(lua_State *L) {
 		if (index == tbl->sizehash) {
 			return 0;
 		}
-		pushkv(L, tbl->L, n);
-		return 2;
+		pushkey(L, tbl->L, n);
+		return 1;
 	} else {
 		return 0;
 	}
 }
 
 static int
-confpairs_wrap(lua_State *L) {
-	lua_pushcfunction(L, lboxnext);
-	lua_pushvalue(L,1);
-	lua_pushvalue(L,2);
-	lua_call(L, 2, 2);
-	wrap_table(L);
-	if (lua_isnil(L, -2)) 
-		return 0;
-	return 2;
-}
-
-static int
-confpairs(lua_State *L) {
-	lua_pushcfunction(L, confpairs_wrap);
-	lua_rawgeti(L, 1, 0);
-	lua_pushnil(L);
-	return 3;
-}
-
-static int
-confipairs_wrap(lua_State *L) {
-	struct table * tbl = get_table(L,1);
-	int idx = luaL_checkinteger(L,2);
-	++idx;
-	if (idx <= 0 || idx > tbl->sizearray) {
-		return 0;
-	}
-	int i;
-	for (i=idx;i<=tbl->sizearray;i++) {
-		if (tbl->arraytype[i-1] != VALUETYPE_NIL) {
-			lua_pushinteger(L, i);
-			pushvalue(L, tbl->L, tbl->arraytype[i-1], &tbl->array[i-1]);
-			wrap_table(L);
-			return 2;
-		}
-	}
-	return 0;
-}
-
-static int
-confipairs(lua_State *L) {
-	lua_pushcfunction(L, confipairs_wrap);
-	lua_rawgeti(L, 1, 0);
-	lua_pushinteger(L, 0);
-	return 3;
-}
-
-static void
-confmeta(lua_State *L) {
-	if (luaL_newmetatable(L, "conf")) {
-		lua_pushcfunction(L, cacheindex);
-		lua_setfield(L, -2, "__index");
-		lua_pushliteral(L, "kv");
-		lua_setfield(L, -2, "__mode");
-		lua_pushcfunction(L, conflen);
-		lua_setfield(L, -2, "__len");
-		lua_pushcfunction(L, confpairs);
-		lua_setfield(L, -2, "__pairs");
-		lua_pushcfunction(L, confipairs);
-		lua_setfield(L, -2, "__ipairs");
-	}
-}
-
-static int
-lboxlen(lua_State *L) {
+llen(lua_State *L) {
 	struct table *tbl = get_table(L,1);
 	lua_pushinteger(L, tbl->sizearray);
 	return 1;
 }
 
 static int
-lboxhashlen(lua_State *L) {
+lhashlen(lua_State *L) {
 	struct table *tbl = get_table(L,1);
 	lua_pushinteger(L, tbl->sizehash);
 	return 1;
 }
 
 static int
-lboxconf(lua_State *L) {
-	lua_settop(L, 0);
-	lua_pushlightuserdata(L, g_table);
+releaseobj(lua_State *L) {
+	struct ctrl *c = lua_touserdata(L, 1);
+	struct table *tbl = c->root;
+	struct state *s = lua_touserdata(tbl->L, 1);
+	__sync_fetch_and_sub(&s->ref, 1);
+	c->root = NULL;
+	c->update = NULL;
 
-	lua_newtable(L);
-	lua_pushvalue(L,1);
-	lua_rawseti(L, -2, 0);
-	confmeta(L);
+	return 0;
+}
+
+static int
+lboxconf(lua_State *L) {
+	struct table * tbl = get_table(L,1);	
+	struct state * s = lua_touserdata(tbl->L, 1);
+	__sync_fetch_and_add(&s->ref, 1);
+
+	struct ctrl * c = lua_newuserdata(L, sizeof(*c));
+	c->root = tbl;
+	c->update = NULL;
+	if (luaL_newmetatable(L, "confctrl")) {
+		lua_pushcfunction(L, releaseobj);
+		lua_setfield(L, -2, "__gc");
+	}
 	lua_setmetatable(L, -2);
 
 	return 1;
 }
 
+static int
+lmarkdirty(lua_State *L) {
+	struct table *tbl = get_table(L,1);
+	struct state * s = lua_touserdata(tbl->L, 1);
+	s->dirty = 1;
+	return 0;
+}
+
+static int
+lisdirty(lua_State *L) {
+	struct table *tbl = get_table(L,1);
+	struct state * s = lua_touserdata(tbl->L, 1);
+	int d = s->dirty;
+	lua_pushboolean(L, d);
+	
+	return 1;
+}
+
+static int
+lgetref(lua_State *L) {
+	struct table *tbl = get_table(L,1);
+	struct state * s = lua_touserdata(tbl->L, 1);
+	lua_pushinteger(L , s->ref);
+
+	return 1;
+}
+
+static int
+lincref(lua_State *L) {
+	struct table *tbl = get_table(L,1);
+	struct state * s = lua_touserdata(tbl->L, 1);
+	int ref = __sync_add_and_fetch(&s->ref, 1);
+	lua_pushinteger(L , ref);
+
+	return 1;
+}
+
+static int
+ldecref(lua_State *L) {
+	struct table *tbl = get_table(L,1);
+	struct state * s = lua_touserdata(tbl->L, 1);
+	int ref = __sync_sub_and_fetch(&s->ref, 1);
+	lua_pushinteger(L , ref);
+
+	return 1;
+}
+
+static int
+lneedupdate(lua_State *L) {
+	struct ctrl * c = lua_touserdata(L, 1);
+	if (c->update) {
+		lua_pushlightuserdata(L, c->update);
+		lua_getuservalue(L, 1);
+		return 2;
+	}
+	return 0;
+}
+
+static int
+lupdate(lua_State *L) {
+	luaL_checktype(L, 1, LUA_TUSERDATA);
+	luaL_checktype(L, 2, LUA_TLIGHTUSERDATA);
+	luaL_checktype(L, 3, LUA_TTABLE);
+	struct ctrl * c= lua_touserdata(L, 1);
+	struct table *n = lua_touserdata(L, 2);
+	if (c->update) {
+		return luaL_error(L, "can't update more than once");
+	}
+	if (c->root == n) {
+		return luaL_error(L, "You should update a new object");
+	}
+	lua_settop(L, 3);
+	lua_setuservalue(L, 1);
+	c->update = n;
+
+	return 0;
+}
+
 int
-luaopen_conf(lua_State *L) {
+luaopen_sharedata_core(lua_State *L) {
 	luaL_Reg l[] = {
+		// used by host
 		{ "new", lnewconf },
 		{ "delete", ldeleteconf },
-		{ "index", lindexconf },
+		{ "markdirty", lmarkdirty },
+		{ "getref", lgetref },
+		{ "incref", lincref },
+		{ "decref", ldecref },
+
+		// used by client
 		{ "box", lboxconf },
-		{ "next", lboxnext },
-		{ "len", lboxlen },
-		{ "hashlen", lboxhashlen },
+		{ "index", lindexconf },
+		{ "nextkey", lnextkey },
+		{ "len", llen },
+		{ "hashlen", lhashlen },
+		{ "isdirty", lisdirty },
+		{ "needupdate", lneedupdate },
+		{ "update", lupdate },
 		{ NULL, NULL },
 	};
 	luaL_checkversion(L);

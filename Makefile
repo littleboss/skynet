@@ -43,7 +43,8 @@ jemalloc : $(MALLOC_STATICLIB)
 CSERVICE = snlua logger gate harbor
 LUA_CLIB = skynet socketdriver int64 bson mongo md5 netpack \
   cjson clientsocket memory profile multicast \
-  cluster conf struct lfs protobuf lpeg syslog xxtea crab utf8
+  cluster struct lfs protobuf lpeg syslog xxtea crab utf8 \
+  crypt sharedata stm
 
 SKYNET_SRC = skynet_main.c skynet_handle.c skynet_module.c skynet_mq.c \
   skynet_server.c skynet_start.c skynet_timer.c skynet_error.c \
@@ -115,9 +116,6 @@ $(LUA_CLIB_PATH)/multicast.so : lualib-src/lua-multicast.c | $(LUA_CLIB_PATH)
 
 $(LUA_CLIB_PATH)/cluster.so : lualib-src/lua-cluster.c | $(LUA_CLIB_PATH)
 
-$(LUA_CLIB_PATH)/conf.so : lualib-src/lua-conf.c | $(LUA_CLIB_PATH)
-	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
-
 $(LUA_CLIB_PATH)/struct.so : lualib-src/lua-struct.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
 
@@ -134,6 +132,15 @@ $(LUA_CLIB_PATH)/crab.so : lualib-src/lua-crab.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
 
 $(LUA_CLIB_PATH)/utf8.so : lualib-src/lua-utf8.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
+
+$(LUA_CLIB_PATH)/crypt.so : lualib-src/lua-crypt.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) $^ -o $@ 
+
+$(LUA_CLIB_PATH)/sharedata.so : lualib-src/lua-sharedata.c | $(LUA_CLIB_PATH)
+	$(CC) $(CFLAGS) $(SHARED) $^ -o $@ 
+
+$(LUA_CLIB_PATH)/stm.so : lualib-src/lua-stm.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) -Iskynet-src $^ -o $@ 
 
 clean :
