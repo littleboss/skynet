@@ -9,12 +9,13 @@ local queryname = {}
 local harbor = {}
 local harbor_service
 local monitor = {}
+local monitor_master_set = {}
 
 local function read_package(fd)
 	local sz = socket.read(fd, 1)
 	assert(sz, "closed")
 	sz = string.byte(sz)
-	local content = socket.read(fd, sz)
+	local content = assert(socket.read(fd, sz), "closed")
 	return skynet.unpack(content)
 end
 
@@ -58,7 +59,7 @@ local function ready()
 		connect_slave(k,v)
 	end
 	for name,address in pairs(globalname) do
-		skynet.redirect(harbor_service, address, "harbor", "N " .. name)
+		skynet.redirect(harbor_service, address, "harbor", 0, "N " .. name)
 	end
 end
 
@@ -99,6 +100,9 @@ local function monitor_master(master_fd)
 			end
 		else
 			skynet.error("Master disconnect")
+			for _, v in ipairs(monitor_master_set) do
+				v(true)
+			end
 			socket.close(master_fd)
 			break
 		end
@@ -181,6 +185,10 @@ function harbor.LINK(fd, id)
 	else
 		skynet.ret()
 	end
+end
+
+function harbor.LINKMASTER()
+	table.insert(monitor_master_set, skynet.response())
 end
 
 function harbor.CONNECT(fd, id)

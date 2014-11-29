@@ -1,3 +1,61 @@
+v0.9.0 (2014-11-17)
+-----------
+* Add UDP support
+* Add IPv6 support
+* socket send package can define a release method
+* dispatch read before write in epoll
+* remove snax queue mode
+* Fix a bug in big-endian architecture
+
+v0.8.1 (2014-11-3)
+-----------
+* Send to an invalid remote service will raise an error
+* Bugifx: socket open address string
+* Remove sha1 from mysqlaux
+* merge lua and sproto bugfix , use crypt lib instead
+* Fix a memory leak in socket
+* minor bugfix in http module
+
+v0.8.0 (2014-10-27)
+-----------
+* Add mysql client driver
+* Bugfix : skynet.queue
+
+v0.7.4 (2014-10-13)
+-----------
+* Bugfix : clear coroutine pool when GC
+* hotfix : A bug introduce by 0.7.3 
+
+v0.7.3 (2014-10-13)
+-----------
+* Add some logs (warning) when overload
+* Bugfix: crash on exit
+
+v0.7.2 (2014-9-29)
+-----------
+* Bugfix : datacenter.wait
+* Bugfix : error in forker coroutine
+* Add skynet.term
+* Accept socket report port
+* sharedata can be update more than once
+
+v0.7.1 (2014-9-22)
+-----------
+* bugfix: wakeup sleep should return BREAK
+* bugfix: sharedatad load string
+* bugfix: dataserver forward error msg
+
+v0.7.0 (2014-9-8)
+-----------
+* Use sproto instead of cjson
+* Add message logger
+* Add hmac-sha1
+* Some minor bugfix
+
+v0.6.2 (2014-9-1)
+-----------
+* bugfix: only skynet.call response PTYPE_ERROR
+
 v0.6.1 (2014-8-25)
 -----------
 * bugfix: datacenter.wakeup
